@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Phishing Spotter Challenge — Multi-Round</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--ok:#2d7a2d;--bad:#a12d2d;--bg:#f4f8fc;--ink:#0d2340}
+  body{font-family:Arial,Helvetica,sans-serif;margin:24px;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:900px}
+  h1{margin:.2rem 0}
+  .sub{color:#445;opacity:.9;margin:0 0 12px}
+  .email-box{border:1px solid #c9d3e1;background:#fff;padding:18px;box-shadow:2px 2px 8px rgba(0,0,0,.06);border-radius:8px}
+  .meta{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:#333}
+  .controls{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}
+  .btn{padding:10px 16px;font-size:15px;cursor:pointer;border-radius:8px;border:1px solid #8aa1bf;background:#fff}
+  .btn:hover{filter:brightness(0.98)}
+  .pill{display:inline-block;background:#e7eef8;border:1px solid #c9d3e1;border-radius:999px;padding:4px 10px;margin-right:6px;font-size:12px}
+  .result{margin-top:16px;padding:14px;border-radius:10px;display:none}
+  .right{background:#d4f4d7;border:2px solid var(--ok)}
+  .wrong{background:#fbdada;border:2px solid var(--bad)}
+  code{background:#f1f3f7;padding:2px 4px;border-radius:4px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .score{font-weight:bold}
+  .hidden{display:none}
+  .done{background:#fff;border:1px solid #c9d3e1;border-radius:10px;padding:18px}
+  .footer{color:#666;font-size:12px;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>🐟 Phishing Spotter Challenge</h1>
+    <div class="score">Round <span id="roundNum">1</span>/<span id="roundTotal">0</span> • Score: <span id="score">0</span></div>
+  </div>
+  <p class="sub">Decide whether each email is <b>Legit</b> or <b>Phish</b>. After you choose, we’ll reveal the tell‑tale clues and explain why.</p>
+
+  <div class="email-box">
+    <div class="meta"><div><b>From:</b> <span id="from"></span></div><div><b>Subject:</b> <span id="subject"></span></div></div>
+    <hr>
+    <div id="body"></div>
+    <div id="footer"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" onclick="answer(true)">Legit ✅</button>
+    <button class="btn" onclick="answer(false)">Phish 🐟</button>
+    <button class="btn" onclick="next()" id="nextBtn" disabled>Next ➡️</button>
+  </div>
+
+  <div id="feedback" class="result"></div>
+
+  <div id="finished" class="done hidden">
+    <h2>🏁 All Done!</h2>
+    <p>You scored <b><span id="finalScore">0</span>/<span id="roundTotal2">0</span></b>.</p>
+    <p><span id="gradeMsg"></span></p>
+    <button class="btn" onclick="restart()">Play Again</button>
+  </div>
+
+  <p class="footer">Training note: These are simulated emails. Do not enter real credentials anywhere. When in doubt, open the official app/portal from your own bookmark.</p>
+</div>
+
+<script>
+// Mix of phishing and legitimate examples. No personal names.
+const rounds = [
+  // Phish 1: Password reset urgency
+  {
+    from: 'IT Support <itsupport@micros0ft-help.com>',
+    subject: '🔥 Urgent: Password Expiring Today!',
+    body: `<p>Hello,</p>
+           <p>Your Microsoft 365 password is scheduled to expire <u>immediately</u>. Failure to act will <b>terminate your account permanently</b>. To keep access, click the secure link below and confirm your identity:</p>
+           <p><a href="http://micros0ft-securelogin.xyz">Reset Password Now</a></p>
+           <p>Thank you,<br> Global IT Help Desk</p>
+           <p style="font-size:10px;color:#888;">This is an automated message. Please do not reply. Unless you have snacks.</p>`,
+    isLegit: false,
+    cluesRight: [
+      "Sender domain uses a zero: <code>micros0ft</code> ≠ <code>microsoft</code>.",
+      "Threat language ('terminate permanently') is designed to panic you.",
+      "Link goes to <code>micros0ft-securelogin.xyz</code> — not a Microsoft domain.",
+      "Unprofessional joke in a system alert."
+    ],
+    cluesWrong: [
+      "Hover links to confirm the real destination — this one isn’t Microsoft.",
+      "Real IT notices don’t demand instant action with threats."
+    ]
+  },
+  // Phish 2: Micro-payment shipping scam
+  {
+    from: 'Shipping Notice <noreply@parcel-alerts.co>',
+    subject: 'Package Held: Action Needed to Release Delivery',
+    body: `<p>Hello,</p>
+           <p>Your package is being held due to insufficient postage (<b>$1.27</b>). Please verify your address and pay the fee to avoid return:</p>
+           <p><a href="http://parcel-alerts.co/verify">Verify & Pay</a></p>
+           <p>Tracking: <code>1Z-4392-ALERT</code></p>`,
+    isLegit: false,
+    cluesRight: [
+      "Unknown sender/brand — not your real carrier.",
+      "Very small payment is classic bait to collect cards or credentials.",
+      "Generic tracking number and vague package details.",
+      "Requests payment through a non-carrier website."
+    ],
+    cluesWrong: [
+      "Carriers usually notify in-app or from official domains (e.g., <code>ups.com</code>).",
+      "Micro-fees and generic tracking are hallmark signs of phish."
+    ]
+  },
+  // Phish 3: Executive impersonation gift cards
+  {
+    from: 'Executive Office <ceo@company-ops.work>',
+    subject: 'Quick Task Needed — Are You Available?',
+    body: `<p>Hi — need a quick favor before a meeting. Can you purchase six $200 eGift cards and send the codes in the next 15 minutes? Accounting will reimburse.</p>
+           <p>Can’t talk — reply by email only.</p>`,
+    isLegit: false,
+    cluesRight: [
+      "Look‑alike domain (<code>company-ops.work</code>) instead of your real corporate domain.",
+      "Unusual, urgent request for gift cards with secrecy.",
+      "No standard purchasing process or approver.",
+      "Pushes you to stay in email only (avoid verification)."
+    ],
+    cluesWrong: [
+      "Always verify unusual requests through a known channel (phone/Teams).",
+      "Gift cards + urgency + secrecy = common executive spoof."
+    ]
+  },
+  // Legit 1: Benefits enrollment reminder (no sketchy links)
+  {
+    from: 'HR Benefits <hr@company.com>',
+    subject: 'Open Enrollment Closes Sept 30 — Review Your Benefits',
+    body: `<p>Hello,</p>
+           <p>Open Enrollment closes on <b>September 30</b>. To review or change your elections, open the Benefits portal from the <b>Company Intranet → Benefits</b> link or use your saved bookmark.</p>
+           <ul><li>Hours: 7am–7pm MT</li><li>Support: benefits@company.com</li></ul>
+           <p><em>Note: For security, we do not include direct sign‑in links in this email.</em></p>`,
+    isLegit: true,
+    cluesRight: [
+      "Sender domain matches the organization (<code>company.com</code>).",
+      "No direct login links — instructs you to use known intranet/bookmark (safer practice).",
+      "Specific, verifiable details (deadline, support address).",
+      "Tone is informative, not threatening or urgent."
+    ],
+    cluesWrong: [
+      "Not all emails with deadlines are phish — this one avoids clickable login links and uses internal addresses you can verify.",
+      "You can confirm via the intranet without using this email."
+    ]
+  },
+  // Legit 2: Microsoft security alert with proper domain
+  {
+    from: 'Microsoft account team <no-reply@microsoft.com>',
+    subject: 'New sign-in from Windows device',
+    body: `<p>We detected a sign-in to your Microsoft account from a new Windows device.</p>
+           <p>If this was you, no action is needed. If not, review your recent activity:</p>
+           <p><a href="https://mysignins.microsoft.com/security-info">Review activity</a></p>
+           <p>Microsoft will never ask for your password via email.</p>`,
+    isLegit: true,
+    cluesRight: [
+      "Sender is a real Microsoft domain (<code>microsoft.com</code>).",
+      "Link goes to a legitimate Microsoft site (<code>mysignins.microsoft.com</code>).",
+      "No request to reply with credentials or payment.",
+      "Standard, neutral tone and purpose."
+    ],
+    cluesWrong: [
+      "Verify the link domain carefully — it is a Microsoft property in this case.",
+      "You can also navigate to <code>mysignins.microsoft.com</code> manually if unsure."
+    ]
+  },
+  // Legit 3: Internal calendar invite with Teams link
+  {
+    from: 'Calendar <noreply@company.com>',
+    subject: 'Meeting Invite: Quarterly Safety Training',
+    body: `<p>You’re invited to “Quarterly Safety Training.”</p>
+           <ul><li>Date: Oct 10, 10:00–11:00 MT</li><li>Organizer: Safety Team</li></ul>
+           <p><a href="https://teams.microsoft.com/l/meetup-join/19%3ameeting_example">Join Microsoft Teams Meeting</a></p>
+           <p>This invitation was sent by the corporate calendar system.</p>`,
+    isLegit: true,
+    cluesRight: [
+      "Comes from the internal calendar system (<code>company.com</code>).",
+      "Teams link uses the official Microsoft domain (<code>teams.microsoft.com</code>).",
+      "Contains routine meeting details; no requests for credentials or payment.",
+      "Matches expected corporate processes."
+    ],
+    cluesWrong: [
+      "Not every link is bad — verify the domain (<code>teams.microsoft.com</code>) and context (expected training).",
+      "You can also open the meeting from your calendar app directly."
+    ]
+  },
+  // Phish 4: DocuSign spoof with fake domain
+  {
+    from: 'DocuSign <notice@docusign-mail.net>',
+    subject: 'Please Review and Sign: Vendor NDA',
+    body: `<p>Hello,</p>
+           <p>You have a new document to sign.</p>
+           <p><a href="https://docusign.example-secure-docs.com/review">Review Document</a></p>
+           <p>If you have questions, contact the sender.</p>`,
+    isLegit: false,
+    cluesRight: [
+      "The link goes to <code>example-secure-docs.com</code> — not a DocuSign domain.",
+      "Very sparse body with no sender context — common credential-harvest lure.",
+      "Brand spoofing of DocuSign is a frequent phishing tactic."
+    ],
+    cluesWrong: [
+      "Open your DocuSign account directly or check for a notification inside the DocuSign app.",
+      "Hover links; the destination domain here is not DocuSign."
+    ]
+  }
+];
+
+let idx = 0;
+let score = 0;
+const fromEl = document.getElementById('from');
+const subjectEl = document.getElementById('subject');
+const bodyEl = document.getElementById('body');
+const feedback = document.getElementById('feedback');
+const nextBtn = document.getElementById('nextBtn');
+const roundNum = document.getElementById('roundNum');
+const roundTotal = document.getElementById('roundTotal');
+const scoreEl = document.getElementById('score');
+const finished = document.getElementById('finished');
+const finalScore = document.getElementById('finalScore');
+const roundTotal2 = document.getElementById('roundTotal2');
+const gradeMsg = document.getElementById('gradeMsg');
+
+roundTotal.textContent = rounds.length;
+
+function render(){
+  const r = rounds[idx];
+  fromEl.textContent = r.from;
+  subjectEl.textContent = r.subject;
+  bodyEl.innerHTML = r.body;
+  feedback.className = 'result';
+  feedback.style.display = 'none';
+  nextBtn.disabled = true;
+  roundNum.textContent = idx+1;
+  scoreEl.textContent = score;
+}
+
+function answer(userThinksLegit){
+  const r = rounds[idx];
+  const correct = (userThinksLegit === r.isLegit);
+  feedback.style.display = 'block';
+  if(correct){
+    score++;
+    feedback.className = 'result right';
+    feedback.innerHTML = "<h3>✅ Correct!</h3><p>This was <b>" + (r.isLegit ? "legitimate" : "a phish") + "</b>.</p><ul>" +
+      r.cluesRight.map(c => "<li>"+c+"</li>").join("") + "</ul>" +
+      "<p><b>Lesson:</b> " + (r.isLegit ? "Legitimate messages align on sender domain, tone, and destination domain. When in doubt, use your own bookmark to open the service." : "Phish often rely on urgency, unfamiliar domains, and unexpected requests. Slow down and verify.") + "</p>";
+  }else{
+    feedback.className = 'result wrong';
+    feedback.innerHTML = "<h3>❌ Not quite.</h3><p>This was actually <b>" + (r.isLegit ? "legitimate" : "a phish") + "</b>.</p><ul>" +
+      r.cluesWrong.map(c => "<li>"+c+"</li>").join("") + "</ul>" +
+      "<p><b>Tip:</b> " + (r.isLegit ? "Not every email with action items is a phish — check sender domain, link destination, and whether it matches normal process." : "Be cautious with urgent requests, odd domains, and payment/credential asks.") + "</p>";
+  }
+  nextBtn.disabled = false;
+  // Disable answer buttons until next
+  document.querySelectorAll('.controls .btn').forEach((b,i)=>{ if(i<2) b.disabled = true; });
+}
+
+function next(){
+  document.querySelectorAll('.controls .btn').forEach((b,i)=>{ if(i<2) b.disabled = false; });
+  if(idx < rounds.length-1){
+    idx++;
+    render();
+  }else{
+    finish();
+  }
+}
+
+function finish(){
+  finalScore.textContent = score;
+  roundTotal2.textContent = rounds.length;
+  finished.classList.remove('hidden');
+  const pct = Math.round((score/rounds.length)*100);
+  gradeMsg.textContent = pct>=90 ? "Admiral of Anti‑Phish — shipshape!"
+    : pct>=75 ? "Strong sailor — keep scanning horizons."
+    : pct>=50 ? "Deckhand in training — review the clues."
+    : "Shark bait — schedule a refresher ASAP.";
+}
+
+function restart(){
+  idx = 0; score = 0; finished.classList.add('hidden'); render();
+}
+
+render();
+</script>
+</body>
+</html>
